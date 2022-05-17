@@ -7,20 +7,26 @@ import verifyAndroidSafetyNetAttestation from "../attestations/androidSafetyNetA
 import verifyAppleAnonymousAttestation from "../attestations/appleAnonymousAttestation";
 
 class UserService {
-    serverMakeCred(id: any, email: string) {
-        const name = email;
-        const displayName = email.split("@")[0];
+    generateCredentials(): any {
+        const email = 'abner@gmail.com'
 
-        const makeCredentials = {
-            challenge: 'mySecretChallenge',
+        const user = {
+            id: base64url.encode("b3ace817-8f11-4940-9322-6c151aabc49a"),
+            name: email.split('@')[0],
+            email: email,
+        };
+
+
+        const credentials = {
+            challenge: base64url.encode("MIIBkzCCATigAwIBAjCCAZMwggE4oAMCAQIwggGTMII="),
             rp: {
                 name: 'Zoox WebAuthN',
                 id: 'webauthn-beta.vercel.app',
             },
             user: {
-                id,
-                name,
-                displayName,
+                id: user.id,
+                name: user.name,
+                displayName: user.email,
             },
             pubKeyCredParams: [
                 {'type': 'public-key', 'alg': -7},
@@ -33,7 +39,7 @@ class UserService {
             timeout: 15000,
         };
 
-        return makeCredentials;
+        return credentials;
     };
 
     findAuthenticator(credID: any, authenticators: any) {
@@ -162,10 +168,6 @@ class UserService {
         const decodedAttestation = cbor.decodeAllSync(attestationBuffer)[0];
 
         let verification;
-
-        if (decodedAttestation.fmt === "none") {
-
-        }
 
         if (decodedAttestation.fmt === "apple") {
             verification = verifyAppleAnonymousAttestation(credential);

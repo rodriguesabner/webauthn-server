@@ -24,17 +24,11 @@ function serverGetAssertion(authenticators: any) {
         return {
             type: "public-key",
             id: authr.credID,
-            transports: ["internal"],
         };
     });
     return {
-        challenge: 'mySecretChallenge',
+        challenge: base64url.encode("MIIBkzCCATigAwIBAjCCAZMwggE4oAMCAQIwggGTMII="),
         allowCredentials: allowCreds,
-        userVerification: "required",
-        rpId,
-        extensions: {
-            txAuthSimple: "",
-        },
         timeout: 60000,
     };
 }

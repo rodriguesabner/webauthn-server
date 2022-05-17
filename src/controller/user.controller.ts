@@ -32,14 +32,7 @@ class UserController {
         if (!email)
             return res.status(400).send('Missing email field');
 
-        const user = {
-            id: "b3ace817-8f11-4940-9322-6c151aabc49a",
-            name: email.split('@')[0],
-            email,
-        };
-
-        let makeCredChallenge: any = this.userService.serverMakeCred(user.id, user.email);
-        makeCredChallenge.status = 'ok';
+        let credentials = this.userService.generateCredentials();
 
         // let userExists = this.stored.find((user: any) => user.email === this.email);
         // if (userExists) {
@@ -47,11 +40,11 @@ class UserController {
         // }
 
         this.stored.push({
-            challenge: makeCredChallenge.challenge,
-            email
+            challenge: credentials.challenge,
+            email: credentials.user.displayName,
         });
 
-        return res.status(200).json(makeCredChallenge);
+        return res.status(200).json(credentials);
     }
 
     async response(req: Request, res: Response) {
@@ -76,47 +69,51 @@ class UserController {
             return res.status(400).json({status: 'failed', message: 'Invalid origin'});
         }
 
-        if (decodedClientData.type !== "webauthn.create") {
-            return res.status(400).json({status: 'failed', message: 'Invalid clientData.type'});
-        }
-
-        const decodedChallenge = new Buffer(decodedClientData.challenge, 'base64').toString('ascii');
         const user = this.stored.find((user: any) => user.email === this.email);
 
-        if (decodedChallenge !== user.challenge) {
+        if (decodedClientData.challenge !== user.challenge) {
             return res.status(400).json({status: 'failed', message: 'Invalid challenge'});
         }
 
-        let result;
-        if (credential.attestationObject !== undefined) {
-            result = await this.userService.verifyAuthenticatorAttestationResponse(credential);
+        if (decodedClientData.type !== "webauthn.create") {
+            const authenticatorData = base64url.decode(credential.authenticatorData);
+            const userHandle = base64url.decode(credential.userHandle);
+            // return res.status(400).json({status: 'failed', message: 'Invalid clientData.type'});
+
+            console.log(authenticatorData);
+            console.log(userHandle);
+        } else {
+            let result;
+            if (credential.attestationObject !== undefined) {
+                result = await this.userService.verifyAuthenticatorAttestationResponse(credential);
+
+                if (result.verified) {
+                    Object.assign(user, {
+                        // @ts-ignore
+                        authenticators: [{...result.authrInfo}]
+                    });
+                    user.registered = true;
+                    // user.save();
+                }
+            } else if (credential.response.authenticatorData !== undefined) {
+                /* This is get assertion */
+                result = await this.userService.verifyAuthenticatorAssertionResponse(credential, user.authenticators);
+            } else {
+                return res.json({
+                    'status': 'failed',
+                    'message': 'Can not determine type of response!'
+                });
+            }
 
             if (result.verified) {
-                Object.assign(user, {
-                    // @ts-ignore
-                    authenticators: [{...result.authrInfo}]
+                // req.session.loggedIn = true;
+                return res.json({'status': 'ok'});
+            } else {
+                return res.json({
+                    'status': 'failed',
+                    'message': 'Can not authenticate signature!'
                 });
-                user.registered = true;
-                // user.save();
             }
-        } else if (credential.response.authenticatorData !== undefined) {
-            /* This is get assertion */
-            result = await this.userService.verifyAuthenticatorAssertionResponse(credential, user.authenticators);
-        } else {
-            return res.json({
-                'status': 'failed',
-                'message': 'Can not determine type of response!'
-            });
-        }
-
-        if (result.verified) {
-            // req.session.loggedIn = true;
-            return res.json({'status': 'ok'});
-        } else {
-            return res.json({
-                'status': 'failed',
-                'message': 'Can not authenticate signature!'
-            });
         }
     }
 }
