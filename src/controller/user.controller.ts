@@ -19,9 +19,9 @@ class UserController {
 
         const user = this.stored.find((user: any) => user.email === this.email);
         if (!user)
-            return res.status(400).send('User does not exist');
+            return res.status(404).send('User does not exist');
 
-        const getAssertion: any = serverGetAssertion(user.authenticators);
+        const getAssertion: any = serverGetAssertion(user);
         getAssertion.status = 'ok';
 
         return res.status(200).json(getAssertion);
@@ -34,15 +34,21 @@ class UserController {
 
         let credentials = this.userService.generateCredentials();
 
-        // let userExists = this.stored.find((user: any) => user.email === this.email);
-        // if (userExists) {
-        //     return res.status(400).json({status: 'error', error: 'User already exists'});
-        // }
+        let userExists = this.stored.find((user: any) => user.email === this.email);
+        if (userExists) {
+            userExists.challenge = credentials.challenge;
+            userExists.email = credentials.user.displayName;
+        } else {
+            this.stored.push({
+                challenge: credentials.challenge,
+                email: credentials.user.displayName,
+            });
+        }
 
-        this.stored.push({
-            challenge: credentials.challenge,
-            email: credentials.user.displayName,
-        });
+        // @ts-ignore
+        req.session.challenge = credentials.challenge;
+        // @ts-ignore
+        req.session.email = credentials.user.email;
 
         return res.status(200).json(credentials);
     }
@@ -75,34 +81,21 @@ class UserController {
             return res.status(400).json({status: 'failed', message: 'Invalid challenge'});
         }
 
-        if (decodedClientData.type !== "webauthn.create") {
-            const authenticatorData = base64url.decode(credential.authenticatorData);
-            const userHandle = base64url.decode(credential.userHandle);
-            // return res.status(400).json({status: 'failed', message: 'Invalid clientData.type'});
+        if(!['webauthn.get', 'webauthn.create'].includes(decodedClientData.type)) {
+            return res.status(400).json({'status': 'failed', 'message': 'Can not determine type of response!'});
+        }
 
-            console.log(authenticatorData);
-            console.log(userHandle);
+        if (decodedClientData.type === "webauthn.get") {
+            const ret = this.userService.verifyAuthenticatorAssertionResponse(req.body, user.authenticators);
+            console.log(ret);
         } else {
-            let result;
-            if (credential.attestationObject !== undefined) {
-                result = await this.userService.verifyAuthenticatorAttestationResponse(credential);
+            const result = await this.userService.verifyAuthenticatorAttestationResponse(credential);
 
-                if (result.verified) {
-                    Object.assign(user, {
-                        // @ts-ignore
-                        authenticators: [{...result.authrInfo}]
-                    });
-                    user.registered = true;
-                    // user.save();
-                }
-            } else if (credential.response.authenticatorData !== undefined) {
-                /* This is get assertion */
-                result = await this.userService.verifyAuthenticatorAssertionResponse(credential, user.authenticators);
-            } else {
-                return res.json({
-                    'status': 'failed',
-                    'message': 'Can not determine type of response!'
+            if (result.verified) {
+                Object.assign(user, {
+                    authenticators: [{...result.authrInfo}]
                 });
+                user.registered = true;
             }
 
             if (result.verified) {

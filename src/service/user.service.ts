@@ -1,6 +1,6 @@
 import base64url from "base64url";
 import cbor from "cbor";
-import {verifySignature} from "../common/helper";
+import {verifySignature, randomBase64URLBuffer} from "../common/helper";
 import crypto from "crypto";
 import verifyAndroidKeyAttestation from "../attestations/androidKeyStoreAttestation";
 import verifyAndroidSafetyNetAttestation from "../attestations/androidSafetyNetAttestation";
@@ -11,14 +11,16 @@ class UserService {
         const email = 'abner@gmail.com'
 
         const user = {
-            id: base64url.encode("b3ace817-8f11-4940-9322-6c151aabc49a"),
+            id: base64url.encode("ab3ace817-8f11-4940-9322-6c151aabc49a"),
             name: email.split('@')[0],
             email: email,
         };
 
+        const challenge = randomBase64URLBuffer(32);
+        console.log(challenge);
 
         const credentials = {
-            challenge: base64url.encode("MIIBkzCCATigAwIBAjCCAZMwggE4oAMCAQIwggGTMII="),
+            challenge,
             rp: {
                 name: 'Zoox WebAuthN',
                 id: 'webauthn-beta.vercel.app',
@@ -29,13 +31,22 @@ class UserService {
                 displayName: user.email,
             },
             pubKeyCredParams: [
-                {'type': 'public-key', 'alg': -7},
-                {'type': 'public-key', 'alg': -257}
+                { 'type': 'public-key', 'alg': -7   },
+                { 'type': 'public-key', 'alg': -35  },
+                { 'type': 'public-key', 'alg': -36  },
+                { 'type': 'public-key', 'alg': -257 },
+                { 'type': 'public-key', 'alg': -258 },
+                { 'type': 'public-key', 'alg': -259 },
+                { 'type': 'public-key', 'alg': -37  },
+                { 'type': 'public-key', 'alg': -38  },
+                { 'type': 'public-key', 'alg': -39  },
+                { 'type': 'public-key', 'alg': -8   }
             ],
-            authenticatorSelection: {
-                userVerification: "required"
-            },
             attestation: 'direct',
+            authenticatorSelection: {
+                requireResidentKey: true,
+                userVerification: 'preferred',
+            },
             timeout: 15000,
         };
 
@@ -124,8 +135,7 @@ class UserService {
             authr.fmt === "packed" ||
             authr.fmt === "android-safetynet" ||
             authr.fmt === "android-key" ||
-            authr.fmt === "apple" ||
-            authr.fmt === "none"
+            authr.fmt === "apple"
         ) {
             let authrDataStruct = this.parseGetAssertAuthData(authenticatorData);
 

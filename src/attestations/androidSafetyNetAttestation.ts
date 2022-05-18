@@ -61,9 +61,41 @@ const validateCertificatePath = (certificates: any) => {
     return true
 }
 
+const parseAuthData = (buffer: any) => {
+    let rpIdHash      = buffer.slice(0, 32);          buffer = buffer.slice(32);
+    let flagsBuf      = buffer.slice(0, 1);           buffer = buffer.slice(1);
+    let flagsInt      = flagsBuf[0];
+    let flags = {
+        up: !!(flagsInt & 0x01),
+        uv: !!(flagsInt & 0x04),
+        at: !!(flagsInt & 0x40),
+        ed: !!(flagsInt & 0x80),
+        flagsInt
+    }
+
+    let counterBuf    = buffer.slice(0, 4);           buffer = buffer.slice(4);
+    let counter       = counterBuf.readUInt32BE(0);
+
+    let aaguid        = undefined;
+    let credID        = undefined;
+    let COSEPublicKey = undefined;
+
+    if(flags.at) {
+        aaguid           = buffer.slice(0, 16);          buffer = buffer.slice(16);
+        let credIDLenBuf = buffer.slice(0, 2);           buffer = buffer.slice(2);
+        let credIDLen    = credIDLenBuf.readUInt16BE(0);
+        credID           = buffer.slice(0, credIDLen);   buffer = buffer.slice(credIDLen);
+        COSEPublicKey    = buffer;
+    }
+
+    return {rpIdHash, flagsBuf, flags, counter, counterBuf, aaguid, credID, COSEPublicKey}
+}
+
 let verifySafetyNetAttestation = (webAuthnResponse: any) => {
-    let attestationBuffer = base64url.toBuffer(webAuthnResponse.response.attestationObject);
+    let attestationBuffer = base64url.toBuffer(webAuthnResponse.attestationObject);
     let attestationStruct = cbor.decodeAllSync(attestationBuffer)[0];
+
+    let authDataStruct    = parseAuthData(attestationStruct.authData);
 
     let jwsString         = attestationStruct.attStmt.response.toString('utf8');
     let jwsParts          = jwsString.split('.');
@@ -73,7 +105,7 @@ let verifySafetyNetAttestation = (webAuthnResponse: any) => {
     let SIGNATURE = jwsParts[2];
 
     /* ----- Verify payload ----- */
-    let clientDataHashBuf = hash('sha256', base64url.toBuffer(webAuthnResponse.response.clientDataJSON));
+    let clientDataHashBuf = hash('sha256', base64url.toBuffer(webAuthnResponse.clientDataJSON));
     let nonceBase     = Buffer.concat([attestationStruct.authData, clientDataHashBuf]);
     let nonceBuffer   = hash('sha256', nonceBase);
     let expectedNonce = nonceBuffer.toString('base64');
@@ -115,16 +147,18 @@ let verifySafetyNetAttestation = (webAuthnResponse: any) => {
 
     /* ----- Verify signature ENDS ----- */
 
-    return true;
-    // return {
-    //     verified: signatureIsValid,
-    //     authrInfo: {
-    //         fmt: "android-safetynet",
-    //         publicKey: base64url(authDataStruct.COSEPublicKey),
-    //         counter: authDataStruct.counter,
-    //         credID: base64url(authDataStruct.credID),
-    //     },
-    // };
+    /* CHECK PUBKEY */
+    // let coseKey = cbor.decodeAllSync(authDataStruct.COSEPublicKey)[0];
+
+    return {
+        verified: signatureIsValid,
+        authrInfo: {
+            fmt: "android-safetynet",
+            publicKey: base64url(authDataStruct.COSEPublicKey),
+            counter: authDataStruct.counter,
+            credID: base64url(authDataStruct.credID),
+        },
+    };
 }
 
 export default verifySafetyNetAttestation;

@@ -169,11 +169,11 @@ const validateCertificatePath = (certificates: any) => {
 }
 
 let verifyAndroidKeyAttestation = (webAuthnResponse: any) => {
-    let attestationBuffer = base64url.toBuffer(webAuthnResponse.response.attestationObject);
+    let attestationBuffer = base64url.toBuffer(webAuthnResponse.attestationObject);
     let attestationStruct = cbor.decodeAllSync(attestationBuffer)[0];
 
     let authDataStruct = parseAuthData(attestationStruct.authData);
-    let clientDataHashBuf = hash('sha256', base64url.toBuffer(webAuthnResponse.response.clientDataJSON));
+    let clientDataHashBuf = hash('sha256', base64url.toBuffer(webAuthnResponse.clientDataJSON));
 
     /* ----- VERIFY SIGNATURE ----- */
     let signatureBaseBuffer = Buffer.concat([attestationStruct.authData, clientDataHashBuf]);

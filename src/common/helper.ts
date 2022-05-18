@@ -18,17 +18,18 @@ const randomHex32String = () => {
     return crypto.randomBytes(32).toString("hex");
 }
 
-function serverGetAssertion(authenticators: any) {
-    const rpId = process.env.RP_ID || "webauthn-beta.vercel.app";
-    const allowCreds = authenticators.map((authr: any) => {
+function serverGetAssertion(user: any) {
+    const allowCreds = user.authenticators.map((authr: any) => {
         return {
             type: "public-key",
             id: authr.credID,
         };
     });
+
+    console.log('arr', allowCreds);
     return {
-        challenge: base64url.encode("MIIBkzCCATigAwIBAjCCAZMwggE4oAMCAQIwggGTMII="),
-        allowCredentials: allowCreds,
+        challenge: user.challenge,
+        // allowCredentials: allowCreds,
         timeout: 60000,
     };
 }
