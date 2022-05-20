@@ -1,10 +1,8 @@
 import express from "express";
 import cors from "cors";
 import Routes from "./routes";
-import cookieSession from "cookie-session";
-import cookieParser from "cookie-parser";
 import session from "express-session";
-import {randomHex32String} from "./common/helper";
+import useragent from 'express-useragent';
 
 class Server {
     public app: express.Application;
@@ -17,7 +15,7 @@ class Server {
     }
 
     config() {
-
+        this.app.use(useragent.express());
         this.app.use(express.json());
         this.app.use(express.urlencoded({extended: true}));
         this.app.use(cors({

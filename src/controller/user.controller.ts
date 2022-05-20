@@ -1,11 +1,10 @@
 import {Request, Response} from "express";
 import UserService from "../service/user.service";
-import {serverGetAssertion} from "../common/helper";
 import base64url from "base64url";
 import {
-    verifyRegistrationResponse,
     generateAuthenticationOptions,
-    verifyAuthenticationResponse
+    verifyAuthenticationResponse,
+    verifyRegistrationResponse
 } from '@simplewebauthn/server';
 
 class UserController {
@@ -23,7 +22,7 @@ class UserController {
         if (!email)
             return res.status(400).send('Missing email field');
 
-        const user = this.stored.find((user: any) => user.email === email);
+        const user = this.stored.find((user: any) => user.user.name === email);
         if (!user)
             return res.status(404).send('User does not exist');
 
@@ -43,7 +42,7 @@ class UserController {
         // @ts-ignore
         req.session.challenge = options.challenge;
         // @ts-ignore
-        req.session.timeout = getNow() + WEBAUTHN_TIMEOUT;
+        req.session.timeout = new Date().getTime() + options.timeout;
 
         return res.status(200).json(options);
     }
@@ -52,17 +51,9 @@ class UserController {
         const {name, displayName} = req.body;
 
         let credentials = this.userService.generateCredentials({name, displayName});
-
-        let userExists = this.stored.find((user: any) => user.name === name);
-        if (userExists) {
-            userExists.challenge = credentials.challenge;
-            userExists.email = credentials.user.displayName;
-        } else {
-            this.stored.push({
-                challenge: credentials.challenge,
-                name,
-            });
-        }
+        this.stored.push({
+            ...credentials
+        });
 
         // @ts-ignore
         req.session.challenge = credentials.challenge;
@@ -96,26 +87,29 @@ class UserController {
             expectedRPID,
         });
 
-        const { verified, registrationInfo } = verification;
+        const {verified, registrationInfo} = verification;
 
         if (!verified || !registrationInfo) {
             throw 'User verification failed.';
         }
 
-        const { credentialPublicKey, credentialID, counter }: any = registrationInfo;
+        const {credentialPublicKey, credentialID, counter}: any = registrationInfo;
         const base64PublicKey = base64url.encode(credentialPublicKey);
         const base64CredentialID = base64url.encode(credentialID);
-        const { transports, clientExtensionResults } = credential;
+        const {transports, clientExtensionResults} = credential;
 
-        let user = this.stored.find((user: any) => user.name === 'abner@gmail.com');
+        let user = this.stored.find((user: any) => user.user.name === 'abner@gmail.com');
         const newData = {
-            user_id: user.user_id,
+            user_id: user.user.id,
             credentialID: base64CredentialID,
             credentialPublicKey: base64PublicKey,
             counter,
             registered: new Date().getTime(),
             user_verifying: registrationInfo.userVerified,
             authenticatorAttachment: "undefined",
+            browser: req.useragent?.browser,
+            os: req.useragent?.os,
+            platform: req.useragent?.platform,
             transports,
             clientExtensionResults,
         }
@@ -148,7 +142,7 @@ class UserController {
 
             const base64PublicKey = base64url.toBuffer(storedCred.credentialPublicKey);
             const base64CredentialID = base64url.toBuffer(storedCred.credentialID);
-            const { counter, transports } = storedCred;
+            const {counter, transports} = storedCred;
 
             const authenticator = {
                 credentialPublicKey: base64PublicKey,
@@ -165,7 +159,7 @@ class UserController {
                 authenticator,
             });
 
-            const { verified, authenticationInfo } = verification;
+            const {verified, authenticationInfo} = verification;
 
             if (!verified) {
                 throw 'User verification failed.';
@@ -186,7 +180,7 @@ class UserController {
             delete req.session.challenge;
             // @ts-ignore
             delete req.session.timeout;
-            res.status(400).json({ status: false, error });
+            res.status(400).json({status: false, error});
         }
     }
 }
