@@ -4,7 +4,6 @@ import cbor from "cbor";
 // @ts-ignore
 import asn1 from "@lapo/asn1js";
 import jsrsasign from "jsrsasign";
-import {COSEECDHAtoPKCS} from "../common/common";
 
 /* Apple Webauthn Root
  * Original is here https://www.apple.com/certificateauthority/Apple_WebAuthn_Root_CA.pem
@@ -72,14 +71,6 @@ let asn1ObjectToJSON = (asn1object: any) => {
     return JASN1
 }
 
-let containsASN1Tag = (seq: any, tag: any) => {
-    for(let member of seq)
-        if(member.type === '[' + tag + ']')
-            return true
-
-    return false
-}
-
 const parseAuthData = (buffer: any) => {
     let rpIdHash      = buffer.slice(0, 32);          buffer = buffer.slice(32);
     let flagsBuf      = buffer.slice(0, 1);           buffer = buffer.slice(1);
@@ -108,22 +99,6 @@ const parseAuthData = (buffer: any) => {
     }
 
     return {rpIdHash, flagsBuf, flags, counter, counterBuf, aaguid, credID, COSEPublicKey}
-}
-
-const getCertificateSubject = (certificate: any) => {
-    let subjectCert = new jsrsasign.X509();
-    subjectCert.readCertPEM(certificate);
-
-    let subjectString = subjectCert.getSubjectString();
-    let subjectFields = subjectString.slice(1).split('/');
-
-    let fields: any = {};
-    for(let field of subjectFields) {
-        let kv = field.split('=');
-        fields[kv[0]] = kv[1];
-    }
-
-    return fields
 }
 
 const validateCertificatePath = (certificates: any) => {
@@ -181,36 +156,6 @@ let verifyAppleAnonymousAttestation = (webAuthnResponse: any) => {
     if(!AppleNonceExtension)
         throw new Error('The certificate is missing Apple Nonce Extension 1.2.840.113635.100.8.2!')
 
-    /*
-        [
-            {
-                "type": "OBJECT_IDENTIFIER",
-                "data": "1.2.840.113635.100.8.2"
-            },
-            {
-                "type": "OCTET_STRING",
-                "data": [
-                    {
-                        "type": "SEQUENCE",
-                        "data": [
-                            {
-                                "type": "[1]",
-                                "data": [
-                                    {
-                                        "type": "OCTET_STRING",
-                                        "data": {
-                                            "type": "Buffer",
-                                            "data": [92, 219, 157, 144, 115, 64, 69, 91, 99, 115, 230, 117, 43, 115, 252, 54, 132, 83, 96, 34, 21, 250, 234, 187, 124, 22, 95, 11, 173, 172, 7, 204]
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-     */
     let appleNonceExtensionJSON = asn1ObjectToJSON(AppleNonceExtension).data;
 
     let certificateNonceBuffer  = appleNonceExtensionJSON[1].data[0].data[0].data[0].data;
@@ -254,9 +199,9 @@ let verifyAppleAnonymousAttestation = (webAuthnResponse: any) => {
         verified: true,
         authrInfo: {
             fmt: 'apple',
-            publicKey: base64url(authDataStruct.COSEPublicKey),
+            publicKey: base64url.encode(authDataStruct.COSEPublicKey),
             counter: authDataStruct.counter,
-            credID: base64url(authDataStruct.credID),
+            credID: base64url.encode(authDataStruct.credID),
         },
     };
 }

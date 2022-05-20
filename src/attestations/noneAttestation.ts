@@ -3,14 +3,16 @@ import elliptic from "elliptic";
 import nodeRSA from "node-rsa";
 import cbor from "cbor";
 import {COSEECDHAtoPKCS, hash, parseAuthData} from "../common/common";
-import {COSE_ALG_HASH, COSE_CRV, COSE_KEYS, COSE_KTY, COSE_RSA_SCHEME} from "../common/cose";
+import {COSE_KEYS, COSE_KTY, COSE_RSA_SCHEME} from "../common/cose";
 
-async function noneAttestation(ctapCredentialResponse: any){
-    const authenticatorDataStruct = parseAuthData(ctapCredentialResponse.authData);
+function noneAttestation(webAuthnResponse: any) {
+    let attestationBuffer = base64url.toBuffer(webAuthnResponse.attestationObject);
+    let attestationStruct = cbor.decodeAllSync(attestationBuffer)[0];
 
+    const authDataStruct = parseAuthData(attestationStruct.authData);
 
-    const publicKeyCose = cbor.decodeAllSync(authenticatorDataStruct.COSEPublicKey)[0];
-    if(publicKeyCose.get(COSE_KEYS.kty) === COSE_KTY.EC2){
+    const publicKeyCose = cbor.decodeAllSync(authDataStruct.COSEPublicKey)[0];
+    if (publicKeyCose.get(COSE_KEYS.kty) === COSE_KTY.EC2) {
         const ansiKey = COSEECDHAtoPKCS(publicKeyCose);
 
         return {
@@ -18,16 +20,15 @@ async function noneAttestation(ctapCredentialResponse: any){
             authrInfo: {
                 fmt: 'none',
                 publicKey: ansiKey,
-                counter: authenticatorDataStruct.counter,
-                credID: base64url(authenticatorDataStruct.credID)
+                counter: authDataStruct.counter,
+                credID: base64url(authDataStruct.credID)
             }
         };
-    }
-    else if(publicKeyCose.get(COSE_KEYS.kty) === COSE_KTY.RSA){
+    } else if (publicKeyCose.get(COSE_KEYS.kty) === COSE_KTY.RSA) {
         // @ts-ignore
         const signingScheme = COSE_RSA_SCHEME[publicKeyCose.get(COSE_KEYS.alg)];
         // @ts-ignore
-        const key = new nodeRSA(undefined, { signingScheme });
+        const key = new nodeRSA(undefined, {signingScheme});
         key.importKey({
             n: publicKeyCose.get(COSE_KEYS.n),
             e: publicKeyCose.get(COSE_KEYS.e)
@@ -37,12 +38,11 @@ async function noneAttestation(ctapCredentialResponse: any){
             authrInfo: {
                 fmt: 'none',
                 publicKey: key.exportKey('pkcs1-public-pem'),
-                counter: authenticatorDataStruct.counter,
-                credID: base64url(authenticatorDataStruct.credID)
+                counter: authDataStruct.counter,
+                credID: base64url(authDataStruct.credID)
             }
         };
-    }
-    else if(publicKeyCose.get(COSE_KEYS.kty) === COSE_KTY.OKP){
+    } else if (publicKeyCose.get(COSE_KEYS.kty) === COSE_KTY.OKP) {
         const x = publicKeyCose.get(COSE_KEYS.x);
         const key = new elliptic.eddsa('ed25519');
         key.keyFromPublic(x);
@@ -52,8 +52,8 @@ async function noneAttestation(ctapCredentialResponse: any){
             authrInfo: {
                 fmt: 'none',
                 publicKey: key,
-                counter: authenticatorDataStruct.counter,
-                credID: base64url(authenticatorDataStruct.credID)
+                counter: authDataStruct.counter,
+                credID: base64url(authDataStruct.credID)
             }
         };
     }

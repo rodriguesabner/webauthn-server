@@ -2,111 +2,191 @@ import {Request, Response} from "express";
 import UserService from "../service/user.service";
 import {serverGetAssertion} from "../common/helper";
 import base64url from "base64url";
+import {
+    verifyRegistrationResponse,
+    generateAuthenticationOptions,
+    verifyAuthenticationResponse
+} from '@simplewebauthn/server';
 
 class UserController {
     private userService: UserService;
     private stored: any = [];
-    private email = "abner@gmail.com";
 
     constructor() {
         this.userService = new UserService();
     }
 
     async login(req: Request, res: Response) {
+        const WEBAUTHN_TIMEOUT = 1000 * 60 * 5; // 5 minutes
+
         const {email} = req.body;
         if (!email)
             return res.status(400).send('Missing email field');
 
-        const user = this.stored.find((user: any) => user.email === this.email);
+        const user = this.stored.find((user: any) => user.email === email);
         if (!user)
             return res.status(404).send('User does not exist');
 
-        const getAssertion: any = serverGetAssertion(user);
-        getAssertion.status = 'ok';
+        const requestOptions = req.body;
 
-        return res.status(200).json(getAssertion);
+        const userVerification = requestOptions.userVerification || 'preferred';
+        const timeout = WEBAUTHN_TIMEOUT;
+        const rpID = 'webauthn-beta.vercel.app';
+
+        const options = generateAuthenticationOptions({
+            timeout,
+            // allowCredentials,
+            userVerification,
+            rpID
+        });
+
+        // @ts-ignore
+        req.session.challenge = options.challenge;
+        // @ts-ignore
+        req.session.timeout = getNow() + WEBAUTHN_TIMEOUT;
+
+        return res.status(200).json(options);
     }
 
     async register(req: Request, res: Response) {
-        const {email} = req.body;
-        if (!email)
-            return res.status(400).send('Missing email field');
+        const {name, displayName} = req.body;
 
-        let credentials = this.userService.generateCredentials();
+        let credentials = this.userService.generateCredentials({name, displayName});
 
-        let userExists = this.stored.find((user: any) => user.email === this.email);
+        let userExists = this.stored.find((user: any) => user.name === name);
         if (userExists) {
             userExists.challenge = credentials.challenge;
             userExists.email = credentials.user.displayName;
         } else {
             this.stored.push({
                 challenge: credentials.challenge,
-                email: credentials.user.displayName,
+                name,
             });
         }
 
         // @ts-ignore
         req.session.challenge = credentials.challenge;
         // @ts-ignore
-        req.session.email = credentials.user.email;
+        req.session.timeout = new Date().getTime() + credentials.timeout;
+        req.session.save();
 
         return res.status(200).json(credentials);
     }
 
     async response(req: Request, res: Response) {
-        if (
-            !req.body?.id ||
-            !req.body?.rawId ||
-            !req.body?.response ||
-            !req.body?.type ||
-            req.body?.type !== 'public-key'
-        ) {
-            return res.status(400).json({
-                status: 'failed',
-                message: 'Response missing one or more of id/rawId/response/type fields, or type is not public-key!',
+        const credential = req.body;
+
+        const currentSession = req.session.id;
+        // @ts-ignore
+        const session = Object.values(req.sessionStore.sessions)[0];
+        // @ts-ignore
+        const sessionToJson = JSON.parse(session);
+        console.log(session);
+
+        // @ts-ignore
+        const expectedChallenge = sessionToJson.challenge;
+        const expectedRPID = "webauthn-beta.vercel.app";
+
+        let expectedOrigin = "https://webauthn-beta.vercel.app";
+
+        const verification = await verifyRegistrationResponse({
+            credential,
+            expectedChallenge,
+            expectedOrigin,
+            expectedRPID,
+        });
+
+        const { verified, registrationInfo } = verification;
+
+        if (!verified || !registrationInfo) {
+            throw 'User verification failed.';
+        }
+
+        const { credentialPublicKey, credentialID, counter }: any = registrationInfo;
+        const base64PublicKey = base64url.encode(credentialPublicKey);
+        const base64CredentialID = base64url.encode(credentialID);
+        const { transports, clientExtensionResults } = credential;
+
+        let user = this.stored.find((user: any) => user.name === 'abner@gmail.com');
+        const newData = {
+            user_id: user.user_id,
+            credentialID: base64CredentialID,
+            credentialPublicKey: base64PublicKey,
+            counter,
+            registered: new Date().getTime(),
+            user_verifying: registrationInfo.userVerified,
+            authenticatorAttachment: "undefined",
+            transports,
+            clientExtensionResults,
+        }
+
+        user = newData;
+
+        return res.status(200).json(credential);
+    }
+
+    async authResponse(req: Request, res: Response) {
+        // @ts-ignore
+        const session = Object.values(req.sessionStore.sessions)[0];
+        // @ts-ignore
+        const sessionToJson = JSON.parse(session);
+        console.log(session);
+
+        const expectedChallenge = sessionToJson.challenge;
+        const expectedRPID = "webauthn-beta.vercel.app";
+        let expectedOrigin = "https://webauthn-beta.vercel.app";
+
+        try {
+            const claimedCred = req.body;
+
+            let credentials = this.stored.find((user: any) => user.name === 'abner@gmail.com');
+            let storedCred = credentials.find((cred: any) => cred.credentialID === claimedCred.id);
+
+            if (!storedCred) {
+                throw 'Authenticating credential not found.';
+            }
+
+            const base64PublicKey = base64url.toBuffer(storedCred.credentialPublicKey);
+            const base64CredentialID = base64url.toBuffer(storedCred.credentialID);
+            const { counter, transports } = storedCred;
+
+            const authenticator = {
+                credentialPublicKey: base64PublicKey,
+                credentialID: base64CredentialID,
+                counter,
+                transports
+            }
+
+            const verification = verifyAuthenticationResponse({
+                credential: claimedCred,
+                expectedChallenge,
+                expectedOrigin,
+                expectedRPID,
+                authenticator,
             });
-        }
 
-        const {response: credential} = req.body;
-        const clientDataJSON = base64url.decode(credential.clientDataJSON);
-        const decodedClientData = JSON.parse(clientDataJSON);
+            const { verified, authenticationInfo } = verification;
 
-        if (decodedClientData.origin !== "https://webauthn-beta.vercel.app") {
-            return res.status(400).json({status: 'failed', message: 'Invalid origin'});
-        }
-
-        const user = this.stored.find((user: any) => user.email === this.email);
-
-        if (decodedClientData.challenge !== user.challenge) {
-            return res.status(400).json({status: 'failed', message: 'Invalid challenge'});
-        }
-
-        if(!['webauthn.get', 'webauthn.create'].includes(decodedClientData.type)) {
-            return res.status(400).json({'status': 'failed', 'message': 'Can not determine type of response!'});
-        }
-
-        if (decodedClientData.type === "webauthn.get") {
-            const ret = this.userService.verifyAuthenticatorAssertionResponse(req.body, user.authenticators);
-            console.log(ret);
-        } else {
-            const result = await this.userService.verifyAuthenticatorAttestationResponse(credential);
-
-            if (result.verified) {
-                Object.assign(user, {
-                    authenticators: [{...result.authrInfo}]
-                });
-                user.registered = true;
+            if (!verified) {
+                throw 'User verification failed.';
             }
 
-            if (result.verified) {
-                // req.session.loggedIn = true;
-                return res.json({'status': 'ok'});
-            } else {
-                return res.json({
-                    'status': 'failed',
-                    'message': 'Can not authenticate signature!'
-                });
-            }
+            storedCred.counter = authenticationInfo.newCounter;
+            storedCred.last_used = new Date().getTime();
+
+            // @ts-ignore
+            delete req.session.challenge;
+            // @ts-ignore
+            delete req.session.timeout;
+            res.json(storedCred);
+        } catch (error) {
+            console.error(error);
+
+            // @ts-ignore
+            delete req.session.challenge;
+            // @ts-ignore
+            delete req.session.timeout;
+            res.status(400).json({ status: false, error });
         }
     }
 }

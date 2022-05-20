@@ -1,11 +1,15 @@
 import crypto from "crypto";
 import base64url from "base64url";
 
-async function verifySignature(signature: any, data: any, publicKey: any) {
-    return crypto
-        .createVerify("SHA256")
-        .update(data)
-        .verify(publicKey, signature);
+function verifySignature(signature: any, data: any, publicKey: any) {
+    try {
+        const verifier = crypto.createVerify("RSA-SHA256");
+        verifier.update(data);
+        return verifier.verify(publicKey, signature);
+    } catch (e: any) {
+        console.log(e);
+        throw new Error(e);
+    }
 }
 
 const randomBase64URLBuffer = (len: number) => {
@@ -22,15 +26,15 @@ function serverGetAssertion(user: any) {
     const allowCreds = user.authenticators.map((authr: any) => {
         return {
             type: "public-key",
-            id: authr.credID,
+            id: authr.id,
         };
     });
 
-    console.log('arr', allowCreds);
     return {
         challenge: user.challenge,
-        // allowCredentials: allowCreds,
-        timeout: 60000,
+        allowCredentials: allowCreds,
+        requireResidentKey: false,
+        timeout: 5000,
     };
 }
 

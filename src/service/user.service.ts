@@ -1,62 +1,76 @@
 import base64url from "base64url";
 import cbor from "cbor";
-import {verifySignature, randomBase64URLBuffer} from "../common/helper";
-import crypto from "crypto";
+import {verifySignature} from "../common/helper";
+import crypto, {createHash} from "crypto";
 import verifyAndroidKeyAttestation from "../attestations/androidKeyStoreAttestation";
 import verifyAndroidSafetyNetAttestation from "../attestations/androidSafetyNetAttestation";
 import verifyAppleAnonymousAttestation from "../attestations/appleAnonymousAttestation";
+import verifyNoneAttestation from "../attestations/noneAttestation";
+import {generateRegistrationOptions} from "@simplewebauthn/server";
 
 class UserService {
-    generateCredentials(): any {
-        const email = 'abner@gmail.com'
+    generateCredentials(userReq: any): any {
+        const creationOptions: any = {};
+        const WEBAUTHN_TIMEOUT = 1000 * 60 * 5; // 5 minutes
+
+        const pubKeyCredParams: any = [];
+        const params = [-7, -257];
+        for (let param of params) {
+            pubKeyCredParams.push({ type: 'public-key', alg: param });
+        }
+
+        const authenticatorSelection: AuthenticatorSelectionCriteria = {};
+        const aa = creationOptions.authenticatorSelection?.authenticatorAttachment;
+        const rk = creationOptions.authenticatorSelection?.residentKey;
+        const uv = creationOptions.authenticatorSelection?.userVerification;
+        const cp = creationOptions.attestation; // attestationConveyancePreference
+        let attestation: AttestationConveyancePreference = 'none';
+
+        if (aa === 'platform' || aa === 'cross-platform') {
+            authenticatorSelection.authenticatorAttachment = aa;
+        }
+        const enrollmentType = aa || 'undefined';
+        if (rk === 'required' || rk === 'preferred' || rk === 'discouraged') {
+            authenticatorSelection.residentKey = rk;
+        }
+        if (uv === 'required' || uv === 'preferred' || uv === 'discouraged') {
+            authenticatorSelection.userVerification = uv;
+        }
+        if (cp === 'none' || cp === 'indirect' || cp === 'direct' || cp === 'enterprise') {
+            attestation = cp;
+        }
+
+        const encoder = new TextEncoder();
+        const name = userReq.name;
+        const displayName = userReq.displayName;
+        const data = encoder.encode(`${name}${displayName}`)
+        const userId = createHash('sha256').update(data).digest();
 
         const user = {
-            id: base64url.encode("ab3ace817-8f11-4940-9322-6c151aabc49a"),
-            name: email.split('@')[0],
-            email: email,
+            id: base64url.encode(Buffer.from(userId)),
+            name,
+            displayName
         };
 
-        const challenge = randomBase64URLBuffer(32);
-        console.log(challenge);
+        const options = generateRegistrationOptions({
+            rpName: "Simple WebAuthn",
+            rpID: 'webauthn-beta.vercel.app',
+            userID: user.id,
+            userName: user.name,
+            userDisplayName: user.displayName,
+            timeout: WEBAUTHN_TIMEOUT,
+            attestationType: attestation,
+            authenticatorSelection,
+        });
 
-        const credentials = {
-            challenge,
-            rp: {
-                name: 'Zoox WebAuthN',
-                id: 'webauthn-beta.vercel.app',
-            },
-            user: {
-                id: user.id,
-                name: user.name,
-                displayName: user.email,
-            },
-            pubKeyCredParams: [
-                { 'type': 'public-key', 'alg': -7   },
-                { 'type': 'public-key', 'alg': -35  },
-                { 'type': 'public-key', 'alg': -36  },
-                { 'type': 'public-key', 'alg': -257 },
-                { 'type': 'public-key', 'alg': -258 },
-                { 'type': 'public-key', 'alg': -259 },
-                { 'type': 'public-key', 'alg': -37  },
-                { 'type': 'public-key', 'alg': -38  },
-                { 'type': 'public-key', 'alg': -39  },
-                { 'type': 'public-key', 'alg': -8   }
-            ],
-            attestation: 'direct',
-            authenticatorSelection: {
-                requireResidentKey: true,
-                userVerification: 'preferred',
-            },
-            timeout: 15000,
-        };
-
-        return credentials;
+        return options;
     };
 
     findAuthenticator(credID: any, authenticators: any) {
         for (const authr of authenticators) {
             if (authr.credID === credID) return authr;
         }
+
         throw new Error(`Unknown authenticator with credID ${credID}!`);
     }
 
@@ -120,14 +134,14 @@ class UserService {
         return PEMKey;
     }
 
-    async verifyAuthenticatorAssertionResponse(
-        webAuthnResponse: any,
-        authenticators: any
-    ) {
+    async verifyAuthenticatorAssertionResponse(webAuthnResponse: any, authenticators: any) {
         const authr = this.findAuthenticator(webAuthnResponse.id, authenticators);
         const authenticatorData = base64url.toBuffer(
             webAuthnResponse.response.authenticatorData
         );
+
+        // pYC7berul2k88TcJOGQMWsTVCf8
+        // pYC7berul2k88TcJOGQMWsTVCf8
 
         let response = {verified: false};
         if (
@@ -135,7 +149,7 @@ class UserService {
             authr.fmt === "packed" ||
             authr.fmt === "android-safetynet" ||
             authr.fmt === "android-key" ||
-            authr.fmt === "apple"
+            authr.fmt === "none"
         ) {
             let authrDataStruct = this.parseGetAssertAuthData(authenticatorData);
 
@@ -151,11 +165,10 @@ class UserService {
                 authrDataStruct.counterBuf,
                 clientDataHash,
             ]);
-            const publicKey = this.checkPEM(authr.publicKey)
-                ? authr.publicKey.toString("base64")
-                : this.ASN1toPEM(base64url.toBuffer(authr.publicKey));
+            const publicKey = this.ASN1toPEM(base64url.toBuffer(authr.publicKey));
             const signature = base64url.toBuffer(webAuthnResponse.response.signature);
-            response.verified = await verifySignature(
+
+            response.verified = verifySignature(
                 signature,
                 signatureBase,
                 publicKey
@@ -185,6 +198,8 @@ class UserService {
             verification = verifyAndroidKeyAttestation(credential);
         } else if (decodedAttestation.fmt === "android-safetynet") {
             verification = verifyAndroidSafetyNetAttestation(credential);
+        } else if (decodedAttestation.fmt === "none") {
+            verification = verifyNoneAttestation(credential);
         }
 
         const {verified, authrInfo}: any = verification;

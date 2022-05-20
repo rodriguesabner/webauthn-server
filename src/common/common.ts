@@ -50,22 +50,21 @@ function parseAuthData(buffer: any) {
         COSEPublicKey
     };
 }
+
 async function verifySignature(signature: any, data: any, publicKey: any) {
     return await crypto.createVerify('SHA256').update(data).verify(publicKey, signature);
 }
 
 function COSEECDHAtoPKCS(COSEPublicKey: any) {
-    Object.values(COSEPublicKey).forEach((value: any) => {
-        if (typeof value === 'string') {
-            COSEPublicKey[value] = Buffer.from(COSEPublicKey[value], 'base64');
-        }
-    });
-    const coseStruct = cbor.decodeAllSync(COSEPublicKey)[0];
-    const tag = Buffer.from([0x04]);
-    const x = coseStruct.get(-2);
-    const y = coseStruct.get(-3);
+    try {
+        const tag = Buffer.from([0x04]);
+        const x = COSEPublicKey.get(-2);
+        const y = COSEPublicKey.get(-3);
 
-    return Buffer.concat([tag, x, y]);
+        return Buffer.concat([tag, x, y]);
+    } catch (e) {
+        console.log(e);
+    }
 }
 
 function base64ToPem(base64cert: any) {
@@ -99,7 +98,7 @@ function validateCertificationPath(certificates: any) {
         const algorithm = subjectCert.getSignatureAlgorithmField();
         const signatureHex = subjectCert.getSignatureValueHex();
 
-        const Signature = new jsrsasign.crypto.Signature({ alg: algorithm });
+        const Signature = new jsrsasign.crypto.Signature({alg: algorithm});
         Signature.init(issuerPem);
         Signature.updateHex(subjectCertStruct);
 
