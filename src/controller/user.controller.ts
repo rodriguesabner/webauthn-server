@@ -98,9 +98,9 @@ class UserController {
         const base64CredentialID = base64url.encode(credentialID);
         const {transports, clientExtensionResults} = credential;
 
-        let user = this.stored.find((user: any) => user.user.name === 'abner@gmail.com');
-        const newData = {
-            user_id: user.user.id,
+        let storagedUser = this.stored.find((user: any) => user.user.name === 'abner@gmail.com');
+        const user = {
+            user_id: storagedUser.user.id,
             credentialID: base64CredentialID,
             credentialPublicKey: base64PublicKey,
             counter,
@@ -112,11 +112,17 @@ class UserController {
             platform: req.useragent?.platform,
             transports,
             clientExtensionResults,
-        }
+        };
 
-        user = newData;
+        const newUser = this.stored.map((u: any) =>
+            u.user.name === 'abner@gmail.com'
+                ? { ...u, credentials: [user] }
+                : u
+        );
 
-        return res.status(200).json(credential);
+        this.stored = newUser;
+
+        return res.status(200).json(user);
     }
 
     async authResponse(req: Request, res: Response) {
@@ -133,8 +139,8 @@ class UserController {
         try {
             const claimedCred = req.body;
 
-            let credentials = this.stored.find((user: any) => user.name === 'abner@gmail.com');
-            let storedCred = credentials.find((cred: any) => cred.credentialID === claimedCred.id);
+            let storagedUser = this.stored.find((user: any) => user.user.name === 'abner@gmail.com');
+            let storedCred = storagedUser.credentials.find((cred: any) => cred.credentialID === claimedCred.id);
 
             if (!storedCred) {
                 throw 'Authenticating credential not found.';

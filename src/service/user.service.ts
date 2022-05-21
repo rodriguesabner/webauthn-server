@@ -23,7 +23,7 @@ class UserService {
         const aa = creationOptions.authenticatorSelection?.authenticatorAttachment;
         const rk = creationOptions.authenticatorSelection?.residentKey;
         const uv = creationOptions.authenticatorSelection?.userVerification;
-        const cp = creationOptions.attestation; // attestationConveyancePreference
+        const cp = creationOptions.attestation;
         let attestation: AttestationConveyancePreference = 'none';
 
         if (aa === 'platform' || aa === 'cross-platform') {
