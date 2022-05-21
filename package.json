@@ -3,6 +3,19 @@
   "version": "1.0.0",
   "main": "src/index.ts",
   "license": "MIT",
+  "scripts": {
+    "start": "NODE_ENV=production node dist",
+    "build": "rimraf ./dist && tsc",
+    "dev": "ts-node-dev src/index.ts",
+    "test": "jest",
+    "release": "git pull && release-it --no-npm.publish",
+    "patch": "git pull && release-it patch --no-npm.publish",
+    "minor": "git pull && release-it minor --no-npm.publish",
+    "major": "git pull && release-it major --no-npm.publish",
+    "lint": "./node_modules/.bin/eslint {src,config}/**/*.ts",
+    "lint-fix": "./node_modules/.bin/eslint {src,config}/**/*.ts --fix",
+    "prisma-generate": "prisma format && prisma migrate dev && prisma db push"
+  },
   "dependencies": {
     "@lapo/asn1js": "^1.2.3",
     "@simplewebauthn/server": "^5.2.1",
