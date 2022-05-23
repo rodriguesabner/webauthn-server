@@ -3,6 +3,7 @@ import cors from "cors";
 import Routes from "./routes";
 import session from "express-session";
 import useragent from 'express-useragent';
+import mongoose from "mongoose";
 
 class Server {
     public app: express.Application;
@@ -11,7 +12,21 @@ class Server {
         this.app = express();
 
         this.config();
+        this.database();
         this.routes();
+    }
+
+    database(){
+        const uri = "mongodb://localhost:27017/webauthn?retryWrites=true&w=majority";
+        mongoose.connect(uri, {
+            // @ts-ignore
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        }).then(() => {
+            console.log("Connected to database");
+        }).catch(err => {
+            console.log(err);
+        });
     }
 
     config() {
@@ -37,7 +52,15 @@ class Server {
                 httpOnly: true,
                 maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
             }
-        }))
+        }));
+        this.app.use((req, res, next) => {
+            res.locals.hostname = req.hostname;
+            const protocol = process.env.NODE_ENV === 'localhost' ? 'http' : 'https';
+            res.locals.origin = `${protocol}://${req.headers.host}`;
+            res.locals.title = process.env.PROJECT_NAME;
+            next();
+        });
+
     }
 
     routes() {

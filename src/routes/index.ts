@@ -10,7 +10,7 @@ class Routes {
     }
 
     routes() {
-        this.app.use("/user", new UserRoute().router);
+        this.app.use("/webauthn", new UserRoute().router);
     }
 }
 

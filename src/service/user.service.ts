@@ -9,8 +9,8 @@ import verifyNoneAttestation from "../attestations/noneAttestation";
 import {generateRegistrationOptions} from "@simplewebauthn/server";
 
 class UserService {
-    generateCredentials(userReq: any): any {
-        const creationOptions: any = {};
+    generateCredentials(opts: any): any {
+        const creationOptions: any = opts || {};
         const WEBAUTHN_TIMEOUT = 1000 * 60 * 5; // 5 minutes
 
         const pubKeyCredParams: any = [];
@@ -41,8 +41,8 @@ class UserService {
         }
 
         const encoder = new TextEncoder();
-        const name = userReq.name;
-        const displayName = userReq.displayName;
+        const name = opts.name;
+        const displayName = opts.displayName;
         const data = encoder.encode(`${name}${displayName}`)
         const userId = createHash('sha256').update(data).digest();
 
@@ -63,7 +63,7 @@ class UserService {
             authenticatorSelection,
         });
 
-        return options;
+        return {...options, enrollmentType};
     };
 
     findAuthenticator(credID: any, authenticators: any) {

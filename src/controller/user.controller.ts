@@ -6,76 +6,103 @@ import {
     verifyAuthenticationResponse,
     verifyRegistrationResponse
 } from '@simplewebauthn/server';
+import {UserModel} from "../model/user.model";
 
 class UserController {
     private userService: UserService;
-    private stored: any = [];
 
     constructor() {
         this.userService = new UserService();
     }
 
+    async getCredentials(req: Request, res: Response) {
+        const {email} = req.query;
+        const existentUser = await UserModel.findOne({email: email});
+        if (!existentUser) {
+            return res.status(404).json({message: 'User not found'});
+        }
+
+        const credentials = existentUser.credentials;
+        return res.status(200).json(credentials);
+    }
+
     async login(req: Request, res: Response) {
+        const requestOptions = req.body;
+        const {name} = req.body;
+
         const WEBAUTHN_TIMEOUT = 1000 * 60 * 5; // 5 minutes
 
-        const {email} = req.body;
-        if (!email)
-            return res.status(400).send('Missing email field');
+        if (!name)
+            return res.status(400).send('Missing name field');
 
-        const user = this.stored.find((user: any) => user.user.name === email);
-        if (!user)
+        const existentUser: any = await UserModel.findOne({name: name});
+
+        if (!existentUser)
             return res.status(404).send('User does not exist');
-
-        const requestOptions = req.body;
 
         const userVerification = requestOptions.userVerification || 'preferred';
         const timeout = WEBAUTHN_TIMEOUT;
         const rpID = 'webauthn-beta.vercel.app';
 
+        // if (requestOptions.allowCredentials) {
+        //     for (let cred of existentUser.credentials) {
+        //         // Find the credential in the list of allowed credentials.
+        //         const _cred: any = requestOptions.allowCredentials.find((_cred: any) => {
+        //             return _cred.credentialID == cred.credentialID;
+        //         });
+        //         // If the credential is found, add it to the list of allowed credentials.
+        //         if (_cred) {
+        //             allowCredentials.push({
+        //                 id: base64url.toBuffer(_cred.id),
+        //                 type: 'public-key',
+        //                 transports: existentUser.transports,
+        //             });
+        //         }
+        //     }
+        // }
+
         const options = generateAuthenticationOptions({
             timeout,
+            // @ts-ignore
             // allowCredentials,
             userVerification,
             rpID
         });
 
-        // @ts-ignore
-        req.session.challenge = options.challenge;
-        // @ts-ignore
-        req.session.timeout = new Date().getTime() + options.timeout;
-
         return res.status(200).json(options);
     }
 
     async register(req: Request, res: Response) {
-        const {name, displayName} = req.body;
+        const body = req.body;
 
-        let credentials = this.userService.generateCredentials({name, displayName});
-        this.stored.push({
-            ...credentials
+        let generateCredentials = this.userService.generateCredentials(body);
+
+        const user = await UserModel.findOne({name: body.name});
+        if (user) {
+            return res.status(200).json(generateCredentials);
+        }
+
+        const newUser = new UserModel({
+            user_id: generateCredentials.user.id,
+            name: generateCredentials.user.name,
+            challenge: generateCredentials.challenge,
         });
 
-        // @ts-ignore
-        req.session.challenge = credentials.challenge;
-        // @ts-ignore
-        req.session.timeout = new Date().getTime() + credentials.timeout;
-        req.session.save();
+        newUser.save();
 
-        return res.status(200).json(credentials);
+        return res.status(200).json(generateCredentials);
     }
 
     async response(req: Request, res: Response) {
         const credential = req.body;
 
-        const currentSession = req.session.id;
-        // @ts-ignore
-        const session = Object.values(req.sessionStore.sessions)[0];
-        // @ts-ignore
-        const sessionToJson = JSON.parse(session);
-        console.log(session);
+        const clientDataBuffer = Buffer.from(credential.response.clientDataJSON, 'base64');
+        const clientData = JSON.parse(clientDataBuffer.toString());
+
+        const existentUser = await UserModel.findOne({challenge: clientData.challenge});
 
         // @ts-ignore
-        const expectedChallenge = sessionToJson.challenge;
+        const expectedChallenge = existentUser.challenge;
         const expectedRPID = "webauthn-beta.vercel.app";
 
         let expectedOrigin = "https://webauthn-beta.vercel.app";
@@ -98,15 +125,13 @@ class UserController {
         const base64CredentialID = base64url.encode(credentialID);
         const {transports, clientExtensionResults} = credential;
 
-        let storagedUser = this.stored.find((user: any) => user.user.name === 'abner@gmail.com');
-        const user = {
-            user_id: storagedUser.user.id,
+        const credentials = {
             credentialID: base64CredentialID,
             credentialPublicKey: base64PublicKey,
             counter,
             registered: new Date().getTime(),
             user_verifying: registrationInfo.userVerified,
-            authenticatorAttachment: "undefined",
+            authenticatorAttachment: "platform",
             browser: req.useragent?.browser,
             os: req.useragent?.os,
             platform: req.useragent?.platform,
@@ -114,15 +139,12 @@ class UserController {
             clientExtensionResults,
         };
 
-        const newUser = this.stored.map((u: any) =>
-            u.user.name === 'abner@gmail.com'
-                ? { ...u, credentials: [user] }
-                : u
+        await UserModel.updateOne(
+            {challenge: existentUser.challenge},
+            {$push: {credentials: credentials}}
         );
 
-        this.stored = newUser;
-
-        return res.status(200).json(user);
+        return res.status(200).json(credentials);
     }
 
     async authResponse(req: Request, res: Response) {
@@ -130,7 +152,6 @@ class UserController {
         const session = Object.values(req.sessionStore.sessions)[0];
         // @ts-ignore
         const sessionToJson = JSON.parse(session);
-        console.log(session);
 
         const expectedChallenge = sessionToJson.challenge;
         const expectedRPID = "webauthn-beta.vercel.app";
@@ -139,7 +160,7 @@ class UserController {
         try {
             const claimedCred = req.body;
 
-            let storagedUser = this.stored.find((user: any) => user.user.name === 'abner@gmail.com');
+            const storagedUser = await UserModel.findOne({email: 'abner@gmail.com'});
             let storedCred = storagedUser.credentials.find((cred: any) => cred.credentialID === claimedCred.id);
 
             if (!storedCred) {
