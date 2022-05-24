@@ -37,7 +37,7 @@ class UserService {
 
         const encoder = new TextEncoder();
         const name = opts.name;
-        const displayName = opts.name.split('@')[0];
+        const displayName = opts.displayName;
         const data = encoder.encode(`${name}${displayName}`)
         const userId = createHash('sha256').update(data).digest();
 

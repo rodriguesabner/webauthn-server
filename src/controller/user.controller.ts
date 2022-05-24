@@ -68,29 +68,37 @@ class UserController {
     }
 
     async register(req: Request, res: Response) {
-        const body = req.body;
-
-        const user = await UserModel.findOne({name: body.name});
+        const {name, displayName} = req.body;
         let credentials;
 
-        if (user != null) {
-            credentials = user.credentials;
+        if(!name || !displayName)
+            return res.status(400).send('Missing name field');
+
+        const existentUser = await UserModel.findOne({name: name});
+        if (existentUser != null) {
+            credentials = existentUser.credentials;
         }
 
-        let generateCredentials = this.userService.generateCredentials(credentials, body);
+        const userReq = {name, displayName};
+        let generateCredentials = this.userService.generateCredentials(credentials, userReq);
 
-        if (user) {
+        if (existentUser) {
             return res.status(200).json(generateCredentials);
         }
 
-        const newUser = new UserModel({
-            user_id: generateCredentials.user.id,
-            name: generateCredentials.user.name,
-            challenge: generateCredentials.challenge,
-            credentials: []
-        });
+        try {
+            const newUser = new UserModel({
+                user_id: generateCredentials.user.id,
+                name: generateCredentials.user.name,
+                displayName: generateCredentials.user.displayName,
+                challenge: generateCredentials.challenge,
+                credentials: []
+            });
 
-        newUser.save();
+            newUser.save();
+        } catch (e: any) {
+            throw new Error(e);
+        }
 
         return res.status(200).json(generateCredentials);
     }
@@ -198,7 +206,7 @@ class UserController {
                 storedCred.counter = authenticationInfo.newCounter;
                 storedCred.last_used = new Date().getTime();
 
-                res.status(200).json(storedCred);
+                res.status(200).json(existentUser);
             } catch (error) {
                 console.error(error);
                 res.status(400).json({status: false, error});

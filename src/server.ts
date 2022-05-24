@@ -17,7 +17,7 @@ class Server {
     }
 
     database(){
-        const uri = "mongodb://localhost:27017/webauthn?retryWrites=true&w=majority";
+        const uri = "mongodb://localhost:27017/webauthn-rc?retryWrites=true&w=majority";
         mongoose.connect(uri, {
             // @ts-ignore
             useNewUrlParser: true,

@@ -7,6 +7,9 @@ const UserSchema = new Schema({
     name: {
         type: String,
     },
+    displayName: {
+        type: String,
+    },
     challenge: {
         type: String,
     },
@@ -15,7 +18,7 @@ const UserSchema = new Schema({
     },
 });
 
-const UserModel = model("User", UserSchema);
+const UserModel = model("Users", UserSchema);
 
 export {
     UserModel
