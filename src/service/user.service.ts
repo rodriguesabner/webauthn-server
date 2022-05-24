@@ -206,8 +206,8 @@ class UserService {
         const decodedRegistrationInfo = decodeRegisterCredentials(registrationInfo);
 
         const newCredentials = {
-            credentialID: decodedRegistrationInfo,
-            credentialPublicKey: decodedRegistrationInfo,
+            credentialID: decodedRegistrationInfo.base64CredentialID,
+            credentialPublicKey: decodedRegistrationInfo.base64PublicKey,
             counter: registrationInfo.counter,
             registered: new Date().getTime(),
             user_verifying: registrationInfo.userVerified,
