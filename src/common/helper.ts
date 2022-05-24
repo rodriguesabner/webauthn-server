@@ -1,46 +1,35 @@
-import crypto from "crypto";
 import base64url from "base64url";
 
-function verifySignature(signature: any, data: any, publicKey: any) {
-    try {
-        const verifier = crypto.createVerify("RSA-SHA256");
-        verifier.update(data);
-        return verifier.verify(publicKey, signature);
-    } catch (e: any) {
-        console.log(e);
-        throw new Error(e);
+function decodeRegisterCredentials(opts: any){
+    const {credentialPublicKey, credentialID} = opts;
+    const base64PublicKey = base64url.encode(credentialPublicKey);
+    const base64CredentialID = base64url.encode(credentialID);
+
+    return {
+        base64CredentialID,
+        base64PublicKey,
+    }
+}
+function decodeAuthCredentials(opts: any){
+    const {credentialPublicKey, credentialID} = opts;
+    const base64PublicKey = base64url.toBuffer(credentialPublicKey);
+    const base64CredentialID = base64url.toBuffer(credentialID);
+
+    return {
+        base64CredentialID,
+        base64PublicKey,
     }
 }
 
-const randomBase64URLBuffer = (len: number) => {
-    len = len || 32;
-    let buff = crypto.randomBytes(len);
-    return base64url(buff);
+function clientDataToJson(credential: any){
+    const clientDataBuffer = Buffer.from(credential.response.clientDataJSON, 'base64');
+    const clientData = JSON.parse(clientDataBuffer.toString());
+    return clientData;
 }
 
-const randomHex32String = () => {
-    return crypto.randomBytes(32).toString("hex");
-}
-
-function serverGetAssertion(user: any) {
-    const allowCreds = user.authenticators.map((authr: any) => {
-        return {
-            type: "public-key",
-            id: authr.id,
-        };
-    });
-
-    return {
-        challenge: user.challenge,
-        allowCredentials: allowCreds,
-        requireResidentKey: false,
-        timeout: 5000,
-    };
-}
 
 export {
-    verifySignature,
-    randomBase64URLBuffer,
-    randomHex32String,
-    serverGetAssertion
+    decodeRegisterCredentials,
+    decodeAuthCredentials,
+    clientDataToJson
 }

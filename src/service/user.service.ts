@@ -1,41 +1,153 @@
 import base64url from "base64url";
-import cbor from "cbor";
-import {verifySignature} from "../common/helper";
-import crypto, {createHash} from "crypto";
-import verifyAndroidKeyAttestation from "../attestations/androidKeyStoreAttestation";
-import verifyAndroidSafetyNetAttestation from "../attestations/androidSafetyNetAttestation";
-import verifyAppleAnonymousAttestation from "../attestations/appleAnonymousAttestation";
-import verifyNoneAttestation from "../attestations/noneAttestation";
-import {generateRegistrationOptions} from "@simplewebauthn/server";
+import {createHash} from "crypto";
+import {
+    generateAuthenticationOptions,
+    generateRegistrationOptions,
+    verifyAuthenticationResponse,
+    verifyRegistrationResponse
+} from "@simplewebauthn/server";
+import UserRepository from "../repository/user.repository";
+import {UserModel} from "../model/user.model";
+import {clientDataToJson, decodeAuthCredentials, decodeRegisterCredentials} from "../common/helper";
 
 class UserService {
+    private userRepository: UserRepository;
+    private WEBAUTHN_TIMEOUT: { FIVE_MINUTES: number };
+    private rpId: string;
+    private rpInfo: string;
+
+    constructor() {
+        this.userRepository = new UserRepository();
+
+        this.rpId = "webauthn-beta.vercel.app"
+        this.rpInfo = "Abner ROdrigues"
+        this.WEBAUTHN_TIMEOUT = {
+            FIVE_MINUTES: 1000 * 60 * 5,
+        };
+    }
+
+    async getCredentials(email: string) {
+        const existentUser = await this.userRepository.findUserByUnique({query: email});
+        if (!existentUser) {
+            throw new Error("User not found");
+        }
+
+        return existentUser.credentials;
+    }
+
+    async authenticate(opts: any) {
+        const allowCredentials = [];
+
+        const existentUser = await this.userRepository.findUserByUnique({query: opts.name});
+        if (!existentUser) throw new Error("User not found");
+
+        const userVerification = opts.userVerification || 'preferred';
+        const timeout = this.WEBAUTHN_TIMEOUT.FIVE_MINUTES;
+        const rpID = this.rpId;
+
+        for (let cred of existentUser.credentials) {
+            if (cred) {
+                allowCredentials.push({
+                    id: base64url.toBuffer(cred.credentialID),
+                    transports: [],
+                    type: 'public-key',
+                });
+            }
+        }
+
+        const options = generateAuthenticationOptions({
+            timeout,
+            // @ts-ignore
+            allowCredentials,
+            challenge: base64url.toBuffer(existentUser.challenge),
+            userVerification,
+            rpID
+        });
+
+        return options;
+    }
+
+    async authenticateResponse(credential: any) {
+        const clientData = clientDataToJson(credential);
+
+        const existentUser = await UserModel.findOne({challenge: clientData.challenge});
+        if (existentUser == null) throw new Error('User not found');
+
+        let expectedOrigin = ["https://webauthn-beta.vercel.app"];
+
+        const userInfoCredentials = existentUser.credentials.find(
+            (user: any) => user.credentialID === credential.id
+        );
+
+        if (!userInfoCredentials) {
+            throw new Error('Authenticating credential not found.');
+        }
+
+        const decodedUserInfo = decodeAuthCredentials(userInfoCredentials);
+
+        const authenticator = {
+            credentialPublicKey: decodedUserInfo.base64PublicKey,
+            credentialID: decodedUserInfo.base64CredentialID,
+            counter: userInfoCredentials.counter,
+            transports: userInfoCredentials.transports
+        }
+
+        const verification = verifyAuthenticationResponse({
+            credential,
+            expectedChallenge: existentUser.challenge,
+            expectedOrigin,
+            expectedRPID: this.rpId,
+            authenticator,
+        });
+
+        const {verified, authenticationInfo} = verification;
+
+        if (!verified) throw 'User verification failed.';
+
+        userInfoCredentials.counter = authenticationInfo.newCounter;
+        userInfoCredentials.last_used = new Date().getTime();
+
+        return existentUser;
+    }
+
+    async register(opts: any) {
+        let credentials;
+
+        const existentUser = await this.userRepository.findUserByUnique({query: opts.name});
+        if (existentUser != null) {
+            credentials = existentUser.credentials;
+        }
+
+        const newUserData = {
+            name: opts.name,
+            displayName: opts.displayName
+        };
+
+        let generatedCred = this.generateCredentials(credentials, {
+            ...newUserData,
+            ...opts.authenticatorSelection,
+        });
+
+        if (existentUser) {
+            return generatedCred;
+        }
+
+        const newUser = new UserModel({
+            user_id: generatedCred.user.id,
+            name: generatedCred.user.name,
+            displayName: generatedCred.user.displayName,
+            challenge: generatedCred.challenge,
+            credentials: []
+        });
+
+        newUser.save();
+
+        return generatedCred;
+    }
+
     generateCredentials(userAuthenticators: any, opts: any): any {
-        const creationOptions: any = opts || {};
-        const WEBAUTHN_TIMEOUT = 1000 * 60 * 5; // 5 minutes
-
-        const pubKeyCredParams: any = [];
-        const params = [-7, -257];
-        for (let param of params) {
-            pubKeyCredParams.push({type: 'public-key', alg: param});
-        }
-
-        const authenticatorSelection: AuthenticatorSelectionCriteria = {};
-        const aa = creationOptions.authenticatorSelection?.authenticatorAttachment;
-        const rk = creationOptions.authenticatorSelection?.residentKey;
-        const uv = creationOptions.authenticatorSelection?.userVerification;
-
-        if (aa === 'platform' || aa === 'cross-platform') {
-            authenticatorSelection.authenticatorAttachment = aa;
-        }
-        const enrollmentType = aa || 'undefined';
-        if (rk === 'required' || rk === 'preferred' || rk === 'discouraged') {
-            authenticatorSelection.residentKey = rk;
-        }
-        if (uv === 'required' || uv === 'preferred' || uv === 'discouraged') {
-            authenticatorSelection.userVerification = uv;
-        }
-
         const encoder = new TextEncoder();
+
         const name = opts.name;
         const displayName = opts.displayName;
         const data = encoder.encode(`${name}${displayName}`)
@@ -56,164 +168,65 @@ class UserService {
         }
 
         const options = generateRegistrationOptions({
-            rpName: "Meu webauthn legal",
-            rpID: 'webauthn-beta.vercel.app',
+            rpName: this.rpInfo,
+            rpID: this.rpId,
             userID: user.id,
             userName: user.name,
             userDisplayName: user.displayName,
-            timeout: WEBAUTHN_TIMEOUT,
+            timeout: this.WEBAUTHN_TIMEOUT.FIVE_MINUTES,
             attestationType: 'indirect',
-            authenticatorSelection,
             excludeCredentials
         });
 
-        return {...options, enrollmentType};
+        return options;
     };
 
-    findAuthenticator(credID: any, authenticators: any) {
-        for (const authr of authenticators) {
-            if (authr.credID === credID) return authr;
-        }
+    async registerResponse(credential: any, browserInfo: any) {
+        const {transports, clientExtensionResults} = credential;
 
-        throw new Error(`Unknown authenticator with credID ${credID}!`);
-    }
+        const clientData = clientDataToJson(credential);
 
-    parseGetAssertAuthData(buffer: any) {
-        const rpIdHash = buffer.slice(0, 32);
-        buffer = buffer.slice(32);
+        const existentUser = await this.userRepository.findUserByChallenge(clientData.challenge);
+        if (existentUser == null) throw new Error('User not found');
 
-        const flagsBuf = buffer.slice(0, 1);
-        buffer = buffer.slice(1);
+        const expectedChallenge = existentUser.challenge;
 
-        const flagsInt = flagsBuf[0];
-        const flags = {
-            up: !!(flagsInt & 0x01),
-            uv: !!(flagsInt & 0x04),
-            at: !!(flagsInt & 0x40),
-            ed: !!(flagsInt & 0x80),
-            flagsInt,
+        const expectedOrigin = "https://webauthn-beta.vercel.app";
+
+        const verification = await verifyRegistrationResponse({
+            credential,
+            expectedChallenge,
+            expectedOrigin,
+            expectedRPID: this.rpId,
+        });
+
+        const {verified, registrationInfo} = verification;
+        if (!verified || !registrationInfo) throw 'User verification failed.';
+
+        const decodedRegistrationInfo = decodeRegisterCredentials(registrationInfo);
+
+        const newCredentials = {
+            credentialID: decodedRegistrationInfo,
+            credentialPublicKey: decodedRegistrationInfo,
+            counter: registrationInfo.counter,
+            registered: new Date().getTime(),
+            user_verifying: registrationInfo.userVerified,
+            authenticatorAttachment: "platform",
+            browser: browserInfo?.browser,
+            os: browserInfo?.os,
+            platform: browserInfo?.platform,
+            transports: transports != null ? transports : [],
+            clientExtensionResults,
         };
 
-        const counterBuf = buffer.slice(0, 4);
-        buffer = buffer.slice(4);
+        await this.userRepository.setCredentialsUserByChallenge({
+            challenge: existentUser.challenge,
+            credentials: newCredentials
+        });
 
-        const counter = counterBuf.readUInt32BE(0);
-
-        return {rpIdHash, flagsBuf, flags, counter, counterBuf};
+        return newCredentials;
     }
 
-    checkPEM(pubKey: any) {
-        return pubKey.toString("base64").includes("BEGIN");
-    }
-
-    hash(data: any) {
-        return crypto.createHash("SHA256").update(data).digest();
-    }
-
-    ASN1toPEM(pkBuffer: any) {
-        if (!Buffer.isBuffer(pkBuffer))
-            throw new Error("ASN1toPEM: input must be a Buffer");
-        let type;
-        if (pkBuffer.length == 65 && pkBuffer[0] == 0x04) {
-            pkBuffer = Buffer.concat([
-                // @ts-ignore
-                new Buffer.from(
-                    "3059301306072a8648ce3d020106082a8648ce3d030107034200",
-                    "hex"
-                ),
-                pkBuffer,
-            ]);
-            type = "PUBLIC KEY";
-        } else type = "CERTIFICATE";
-        const base64Certificate = pkBuffer.toString("base64");
-        let PEMKey = "";
-
-        for (let i = 0; i < Math.ceil(base64Certificate.length / 64); i++) {
-            const start = 64 * i;
-            PEMKey += base64Certificate.substr(start, 64) + "\n";
-        }
-
-        PEMKey = `-----BEGIN ${type}-----\n` + PEMKey + `-----END ${type}-----\n`;
-
-        return PEMKey;
-    }
-
-    async verifyAuthenticatorAssertionResponse(webAuthnResponse: any, authenticators: any) {
-        const authr = this.findAuthenticator(webAuthnResponse.id, authenticators);
-        const authenticatorData = base64url.toBuffer(
-            webAuthnResponse.response.authenticatorData
-        );
-
-        // pYC7berul2k88TcJOGQMWsTVCf8
-        // pYC7berul2k88TcJOGQMWsTVCf8
-
-        let response = {verified: false};
-        if (
-            authr.fmt === "fido-u2f" ||
-            authr.fmt === "packed" ||
-            authr.fmt === "android-safetynet" ||
-            authr.fmt === "android-key" ||
-            authr.fmt === "none"
-        ) {
-            let authrDataStruct = this.parseGetAssertAuthData(authenticatorData);
-
-            if (!authrDataStruct.flags.up)
-                throw new Error("User was NOT presented durring authentication!");
-
-            const clientDataHash = this.hash(
-                base64url.toBuffer(webAuthnResponse.response.clientDataJSON)
-            );
-            const signatureBase = Buffer.concat([
-                authrDataStruct.rpIdHash,
-                authrDataStruct.flagsBuf,
-                authrDataStruct.counterBuf,
-                clientDataHash,
-            ]);
-            const publicKey = this.ASN1toPEM(base64url.toBuffer(authr.publicKey));
-            const signature = base64url.toBuffer(webAuthnResponse.response.signature);
-
-            response.verified = verifySignature(
-                signature,
-                signatureBase,
-                publicKey
-            );
-
-            if (response.verified) {
-                // @ts-ignore
-                if (response.counter <= authr.counter)
-                    throw new Error("Authr counter did not increase!");
-
-                authr.counter = authrDataStruct.counter;
-            }
-        }
-
-        return response;
-    }
-
-    async verifyAuthenticatorAttestationResponse(credential: any) {
-        const attestationBuffer = base64url.toBuffer(credential.attestationObject);
-        const decodedAttestation = cbor.decodeAllSync(attestationBuffer)[0];
-
-        let verification;
-
-        if (decodedAttestation.fmt === "apple") {
-            verification = verifyAppleAnonymousAttestation(credential);
-        } else if (decodedAttestation.fmt === "android-key") {
-            verification = verifyAndroidKeyAttestation(credential);
-        } else if (decodedAttestation.fmt === "android-safetynet") {
-            verification = verifyAndroidSafetyNetAttestation(credential);
-        } else if (decodedAttestation.fmt === "none") {
-            verification = verifyNoneAttestation(credential);
-        }
-
-        const {verified, authrInfo}: any = verification;
-
-        if (verified) {
-            return {verified, authrInfo};
-        } else {
-            return {verified: false};
-        }
-    }
 }
 
 export default UserService;
