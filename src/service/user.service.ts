@@ -9,22 +9,20 @@ import verifyNoneAttestation from "../attestations/noneAttestation";
 import {generateRegistrationOptions} from "@simplewebauthn/server";
 
 class UserService {
-    generateCredentials(opts: any): any {
+    generateCredentials(userAuthenticators: any, opts: any): any {
         const creationOptions: any = opts || {};
         const WEBAUTHN_TIMEOUT = 1000 * 60 * 5; // 5 minutes
 
         const pubKeyCredParams: any = [];
         const params = [-7, -257];
         for (let param of params) {
-            pubKeyCredParams.push({ type: 'public-key', alg: param });
+            pubKeyCredParams.push({type: 'public-key', alg: param});
         }
 
         const authenticatorSelection: AuthenticatorSelectionCriteria = {};
         const aa = creationOptions.authenticatorSelection?.authenticatorAttachment;
         const rk = creationOptions.authenticatorSelection?.residentKey;
         const uv = creationOptions.authenticatorSelection?.userVerification;
-        const cp = creationOptions.attestation;
-        let attestation: AttestationConveyancePreference = 'none';
 
         if (aa === 'platform' || aa === 'cross-platform') {
             authenticatorSelection.authenticatorAttachment = aa;
@@ -36,13 +34,10 @@ class UserService {
         if (uv === 'required' || uv === 'preferred' || uv === 'discouraged') {
             authenticatorSelection.userVerification = uv;
         }
-        if (cp === 'none' || cp === 'indirect' || cp === 'direct' || cp === 'enterprise') {
-            attestation = cp;
-        }
 
         const encoder = new TextEncoder();
         const name = opts.name;
-        const displayName = opts.displayName;
+        const displayName = opts.name.split('@')[0];
         const data = encoder.encode(`${name}${displayName}`)
         const userId = createHash('sha256').update(data).digest();
 
@@ -52,15 +47,24 @@ class UserService {
             displayName
         };
 
+        let excludeCredentials;
+        if (userAuthenticators != null) {
+            excludeCredentials = userAuthenticators.map((authenticator: any) => ({
+                id: authenticator.credentialID,
+                type: 'public-key',
+            }));
+        }
+
         const options = generateRegistrationOptions({
-            rpName: "Simple WebAuthn",
+            rpName: "Meu webauthn legal",
             rpID: 'webauthn-beta.vercel.app',
             userID: user.id,
             userName: user.name,
             userDisplayName: user.displayName,
             timeout: WEBAUTHN_TIMEOUT,
-            attestationType: attestation,
+            attestationType: 'indirect',
             authenticatorSelection,
+            excludeCredentials
         });
 
         return {...options, enrollmentType};
