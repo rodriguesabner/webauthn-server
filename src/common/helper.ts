@@ -27,9 +27,19 @@ function clientDataToJson(credential: any){
     return clientData;
 }
 
+function getDomain(url: string){
+    const urlParts = url.split('.');
+    if(urlParts.length < 3){
+        throw new Error('Invalid URL');
+    }
+
+    const domain = urlParts[1] + '.' + urlParts[2];
+    return domain;
+}
 
 export {
     decodeRegisterCredentials,
     decodeAuthCredentials,
-    clientDataToJson
+    clientDataToJson,
+    getDomain
 }

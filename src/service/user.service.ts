@@ -8,7 +8,7 @@ import {
 } from "@simplewebauthn/server";
 import UserRepository from "../repository/user.repository";
 import {UserModel} from "../model/user.model";
-import {clientDataToJson, decodeAuthCredentials, decodeRegisterCredentials} from "../common/helper";
+import {getDomain, clientDataToJson, decodeAuthCredentials, decodeRegisterCredentials} from "../common/helper";
 
 class UserService {
     private userRepository: UserRepository;
@@ -153,29 +153,29 @@ class UserService {
         const data = encoder.encode(`${name}${displayName}`)
         const userId = createHash('sha256').update(data).digest();
 
+        const domain = getDomain("webauthn-beta.vercel.app");
+        if(domain !== "vercel.app") {
+            throw new Error("Domain not supported");
+        }
+
         const user = {
             id: base64url.encode(Buffer.from(userId)),
             name,
             displayName
         };
 
-        let excludeCredentials;
-        if (userAuthenticators != null) {
-            excludeCredentials = userAuthenticators.map((authenticator: any) => ({
-                id: authenticator.credentialID,
-                type: 'public-key',
-            }));
-        }
-
         const options = generateRegistrationOptions({
             rpName: this.rpInfo,
             rpID: this.rpId,
             userID: user.id,
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+            },
             userName: user.name,
             userDisplayName: user.displayName,
             timeout: this.WEBAUTHN_TIMEOUT.FIVE_MINUTES,
             attestationType: 'indirect',
-            excludeCredentials
+            // attestationType:  'direct',
         });
 
         return options;
