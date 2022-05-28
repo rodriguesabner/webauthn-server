@@ -43,6 +43,7 @@ class UserController {
             return res.status(400).send('Missing name field');
 
         try {
+            Object.assign(requestParams, {userAgent: req.useragent});
             const ret = await this.userService.register(requestParams);
             return res.status(200).json(ret);
         } catch (e: any) {

@@ -1,5 +1,5 @@
 import base64url from "base64url";
-import {createHash} from "crypto";
+import { createHash } from "crypto";
 import {
     generateAuthenticationOptions,
     generateRegistrationOptions,
@@ -7,8 +7,8 @@ import {
     verifyRegistrationResponse
 } from "@simplewebauthn/server";
 import UserRepository from "../repository/user.repository";
-import {UserModel} from "../model/user.model";
-import {getDomain, clientDataToJson, decodeAuthCredentials, decodeRegisterCredentials} from "../common/helper";
+import { UserModel } from "../model/user.model";
+import { getDomain, clientDataToJson, decodeAuthCredentials, decodeRegisterCredentials } from "../common/helper";
 
 class UserService {
     private userRepository: UserRepository;
@@ -27,7 +27,7 @@ class UserService {
     }
 
     async getCredentials(email: string) {
-        const existentUser = await this.userRepository.findUserByUnique({query: email});
+        const existentUser = await this.userRepository.findUserByUnique({ query: email });
         if (!existentUser) {
             throw new Error("User not found");
         }
@@ -38,7 +38,7 @@ class UserService {
     async authenticate(opts: any) {
         const allowCredentials = [];
 
-        const existentUser = await this.userRepository.findUserByUnique({query: opts.name});
+        const existentUser = await this.userRepository.findUserByUnique({ query: opts.name });
         if (!existentUser) throw new Error("User not found");
 
         const userVerification = opts.userVerification || 'preferred';
@@ -70,7 +70,7 @@ class UserService {
     async authenticateResponse(credential: any) {
         const clientData = clientDataToJson(credential);
 
-        const existentUser = await UserModel.findOne({challenge: clientData.challenge});
+        const existentUser = await UserModel.findOne({ challenge: clientData.challenge });
         if (existentUser == null) throw new Error('User not found');
 
         let expectedOrigin = ["https://webauthn-beta.vercel.app"];
@@ -100,7 +100,7 @@ class UserService {
             authenticator,
         });
 
-        const {verified, authenticationInfo} = verification;
+        const { verified, authenticationInfo } = verification;
 
         if (!verified) throw 'User verification failed.';
 
@@ -111,21 +111,17 @@ class UserService {
     }
 
     async register(opts: any) {
-        let credentials;
-
-        const existentUser = await this.userRepository.findUserByUnique({query: opts.name});
-        if (existentUser != null) {
-            credentials = existentUser.credentials;
-        }
+        const existentUser = await this.userRepository.findUserByUnique({ query: opts.name });
 
         const newUserData = {
             name: opts.name,
             displayName: opts.displayName
         };
 
-        let generatedCred = this.generateCredentials(credentials, {
+        let generatedCred = this.generateCredentials({
             ...newUserData,
             ...opts.authenticatorSelection,
+            userAgent: opts.userAgent
         });
 
         if (existentUser) {
@@ -145,7 +141,7 @@ class UserService {
         return generatedCred;
     }
 
-    generateCredentials(userAuthenticators: any, opts: any): any {
+    generateCredentials(opts: any): any {
         const encoder = new TextEncoder();
 
         const name = opts.name;
@@ -154,7 +150,7 @@ class UserService {
         const userId = createHash('sha256').update(data).digest();
 
         const domain = getDomain("webauthn-beta.vercel.app");
-        if(domain !== "vercel.app") {
+        if (domain !== "vercel.app") {
             throw new Error("Domain not supported");
         }
 
@@ -164,25 +160,33 @@ class UserService {
             displayName
         };
 
-        const options = generateRegistrationOptions({
+        let options;
+
+        if (!opts.userAgent.platform.includes("Linux")) {
+            Object.assign(options, {
+                authenticatorSelection: {
+                    authenticatorAttachment: 'platform',
+                },
+            })
+        }
+
+        options = generateRegistrationOptions({
             rpName: this.rpInfo,
             rpID: this.rpId,
             userID: user.id,
-            authenticatorSelection: {
-              authenticatorAttachment: 'platform',
-            },
             userName: user.name,
             userDisplayName: user.displayName,
             timeout: this.WEBAUTHN_TIMEOUT.FIVE_MINUTES,
             attestationType: 'indirect',
-            // attestationType:  'direct',
+            // attestationType:  'direct', 
+            // obs: direct nao funciona no browser: brave.
         });
 
         return options;
     };
 
     async registerResponse(credential: any, browserInfo: any) {
-        const {transports, clientExtensionResults} = credential;
+        const { transports, clientExtensionResults } = credential;
 
         const clientData = clientDataToJson(credential);
 
@@ -200,7 +204,7 @@ class UserService {
             expectedRPID: this.rpId,
         });
 
-        const {verified, registrationInfo} = verification;
+        const { verified, registrationInfo } = verification;
         if (!verified || !registrationInfo) throw 'User verification failed.';
 
         const decodedRegistrationInfo = decodeRegisterCredentials(registrationInfo);
