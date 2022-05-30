@@ -39,8 +39,6 @@ class UserController {
     async register(req: Request, res: Response) {
         const requestParams = req.body;
 
-        console.log(req.useragent)
-
         if (!requestParams.name || !requestParams.displayName)
             return res.status(400).send('Missing name field');
 

@@ -104,10 +104,12 @@ class UserService {
 
         if (!verified) throw 'User verification failed.';
 
-        userInfoCredentials.counter = authenticationInfo.newCounter;
-        userInfoCredentials.last_used = new Date().getTime();
-
-        await this.userRepository.updateLoggedAt(existentUser._id);
+        await existentUser.updateOne({
+            $set: {
+                counter: authenticationInfo.newCounter,
+                last_used: new Date(),
+            }
+        });
 
         return existentUser;
     }
@@ -162,7 +164,7 @@ class UserService {
             displayName
         };
 
-        let options;
+        let options: any = {};
 
         if (!opts.userAgent.platform.includes("Linux")) {
             Object.assign(options, {
@@ -180,7 +182,7 @@ class UserService {
             userDisplayName: user.displayName,
             timeout: this.WEBAUTHN_TIMEOUT.FIVE_MINUTES,
             attestationType: 'indirect',
-            // attestationType:  'direct', 
+            // attestationType:  'direct',
             // obs: direct nao funciona no browser: brave.
         });
 
