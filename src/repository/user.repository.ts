@@ -19,6 +19,15 @@ class UserRepository {
         );
     }
 
+
+
+    async updateLoggedAt({id}: { id: any }) {
+        await UserModel.updateOne(
+            {_id: id},
+            {$set: {last_used: new Date()}}
+        );
+    }
+
 }
 
 export default UserRepository;

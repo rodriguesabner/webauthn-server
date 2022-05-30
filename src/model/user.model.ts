@@ -16,6 +16,10 @@ const UserSchema = new Schema({
     credentials: {
         type: Array,
     },
+    last_used: {
+        type: Date,
+        default: Date.now,
+    }
 });
 
 const UserModel = model("Users", UserSchema);

@@ -107,6 +107,8 @@ class UserService {
         userInfoCredentials.counter = authenticationInfo.newCounter;
         userInfoCredentials.last_used = new Date().getTime();
 
+        await this.userRepository.updateLoggedAt(existentUser._id);
+
         return existentUser;
     }
 
