@@ -1,7 +1,10 @@
+import {config} from "dotenv";
+config();
+
 import {createServer} from "http";
 import Server from "./server";
 
-const PORT = 8002 || process.env.PORT;
+const PORT = process.env.PORT || 8002;
 const http = createServer(Server);
 
 http.listen(PORT, async () => {

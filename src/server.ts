@@ -16,8 +16,9 @@ class Server {
     }
 
     database(){
-        const uri = "mongodb+srv://kingaspx:abner6649@cluster0.kseg8.mongodb.net/webauthn?retryWrites=true&w=majority"; 
-        mongoose.connect(uri, {
+        console.log(process.env.URL_MONGO);
+        // @ts-ignore
+        mongoose.connect(process.env.URL_MONGO, {
             // @ts-ignore
             useNewUrlParser: true,
             useUnifiedTopology: true,
