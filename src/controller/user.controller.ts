@@ -43,7 +43,7 @@ class UserController {
             return res.status(400).send('Missing name field');
 
         try {
-            Object.assign(requestParams, {userAgent: req.useragent});
+            Object.assign(requestParams, {userAgent: req.useragent, origin: req.headers.origin});
             const ret = await this.userService.register(requestParams);
             return res.status(200).json(ret);
         } catch (e: any) {
@@ -57,7 +57,7 @@ class UserController {
             return res.status(400).send('Missing response field');
 
         try {
-            const ret = await this.userService.registerResponse(credential, req.useragent);
+            const ret = await this.userService.registerResponse(credential, req.useragent, req.headers.origin);
             return res.status(200).json(ret);
         } catch (e: any) {
             return res.status(400).send(e.message);
@@ -69,7 +69,8 @@ class UserController {
         if (!credential.response) return res.status(400).json({error: 'response field is required'});
 
         try {
-            const ret = await this.userService.authenticateResponse(credential);
+            // @ts-ignore
+            const ret = await this.userService.authenticateResponse(credential, req.headers.origin);
             return res.status(200).json(ret);
         } catch (e: any) {
             return res.status(400).send(e.message);

@@ -27,7 +27,7 @@ function clientDataToJson(credential: any){
     return clientData;
 }
 
-function getDomain(url: string){
+function extractDomain(url: string){
     const urlParts = url.split('.');
     if(urlParts.length < 3){
         throw new Error('Invalid URL');
@@ -41,5 +41,5 @@ export {
     decodeRegisterCredentials,
     decodeAuthCredentials,
     clientDataToJson,
-    getDomain
+    extractDomain
 }

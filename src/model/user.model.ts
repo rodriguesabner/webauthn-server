@@ -13,6 +13,9 @@ const UserSchema = new Schema({
     challenge: {
         type: String,
     },
+    origin: {
+        type: String,
+    },
     credentials: {
         type: Array,
     },

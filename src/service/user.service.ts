@@ -8,7 +8,7 @@ import {
 } from "@simplewebauthn/server";
 import UserRepository from "../repository/user.repository";
 import { UserModel } from "../model/user.model";
-import { getDomain, clientDataToJson, decodeAuthCredentials, decodeRegisterCredentials } from "../common/helper";
+import { extractDomain, clientDataToJson, decodeAuthCredentials, decodeRegisterCredentials } from "../common/helper";
 
 class UserService {
     private userRepository: UserRepository;
@@ -43,7 +43,6 @@ class UserService {
 
         const userVerification = opts.userVerification || 'preferred';
         const timeout = this.WEBAUTHN_TIMEOUT.FIVE_MINUTES;
-        const rpID = this.rpId;
 
         for (let cred of existentUser.credentials) {
             if (cred) {
@@ -61,19 +60,21 @@ class UserService {
             allowCredentials,
             challenge: base64url.toBuffer(existentUser.challenge),
             userVerification,
-            rpID
         });
 
         return options;
     }
 
-    async authenticateResponse(credential: any) {
+    async authenticateResponse(credential: any, origin: string) {
+        const domain = extractDomain(origin);
+        if (domain !== "vercel.app") {
+            throw new Error("Domain not supported");
+        }
+
         const clientData = clientDataToJson(credential);
 
         const existentUser = await UserModel.findOne({ challenge: clientData.challenge });
         if (existentUser == null) throw new Error('User not found');
-
-        let expectedOrigin = ["https://webauthn-beta.vercel.app"];
 
         const userInfoCredentials = existentUser.credentials.find(
             (user: any) => user.credentialID === credential.id
@@ -92,11 +93,13 @@ class UserService {
             transports: userInfoCredentials.transports
         }
 
+        const originToRpID = existentUser.origin.replace(/^https?:\/\//, '');
+
         const verification = verifyAuthenticationResponse({
             credential,
             expectedChallenge: existentUser.challenge,
-            expectedOrigin,
-            expectedRPID: this.rpId,
+            expectedOrigin: existentUser.origin,
+            expectedRPID: originToRpID,
             authenticator,
         });
 
@@ -124,7 +127,7 @@ class UserService {
 
         let generatedCred = this.generateCredentials({
             ...newUserData,
-            ...opts.authenticatorSelection,
+            origin: opts.origin,
             userAgent: opts.userAgent
         });
 
@@ -137,6 +140,7 @@ class UserService {
             name: generatedCred.user.name,
             displayName: generatedCred.user.displayName,
             challenge: generatedCred.challenge,
+            origin: opts.origin,
             credentials: []
         });
 
@@ -148,12 +152,11 @@ class UserService {
     generateCredentials(opts: any): any {
         const encoder = new TextEncoder();
 
-        const name = opts.name;
-        const displayName = opts.displayName;
+        const {name, displayName, origin} = opts;
         const data = encoder.encode(`${name}${displayName}`)
         const userId = createHash('sha256').update(data).digest();
 
-        const domain = getDomain("webauthn-beta.vercel.app");
+        const domain = extractDomain(origin);
         if (domain !== "vercel.app") {
             throw new Error("Domain not supported");
         }
@@ -174,9 +177,11 @@ class UserService {
             })
         }
 
+        const originToRpID = origin.replace(/^https?:\/\//, '');
+
         options = generateRegistrationOptions({
             rpName: this.rpInfo,
-            rpID: this.rpId,
+            rpID: originToRpID,
             userID: user.id,
             userName: user.name,
             userDisplayName: user.displayName,
@@ -189,7 +194,7 @@ class UserService {
         return options;
     };
 
-    async registerResponse(credential: any, browserInfo: any) {
+    async registerResponse(credential: any, browserInfo: any, origin?: string) {
         const { transports, clientExtensionResults } = credential;
 
         const clientData = clientDataToJson(credential);
@@ -198,14 +203,20 @@ class UserService {
         if (existentUser == null) throw new Error('User not found');
 
         const expectedChallenge = existentUser.challenge;
+        const expectedOrigin = existentUser.origin;
 
-        const expectedOrigin = "https://webauthn-beta.vercel.app";
+        const domain = extractDomain(expectedOrigin);
+        if (domain !== "vercel.app") {
+            throw new Error("Domain not supported");
+        }
+
+        const originToRpID = expectedOrigin.replace(/^https?:\/\//, '');
 
         const verification = await verifyRegistrationResponse({
             credential,
             expectedChallenge,
             expectedOrigin,
-            expectedRPID: this.rpId,
+            expectedRPID: originToRpID,
         });
 
         const { verified, registrationInfo } = verification;
